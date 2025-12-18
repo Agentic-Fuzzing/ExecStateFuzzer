@@ -1,0 +1,10 @@
+{
+    "rules": [
+        {
+            "name": "insert_random_bytes",
+            "operators": [
+                ["insert_random_bytes", 1]
+            ]
+        }
+    ]
+}

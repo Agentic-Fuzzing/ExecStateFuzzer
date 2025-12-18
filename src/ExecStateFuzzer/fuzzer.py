@@ -16,12 +16,12 @@ from .coverage_plateau_flow import CoveragePlateauFlow
 
 class SeedQueue:
     def __init__(self):
-        self.queue = []
+        self.queue : List[tuple[bytes, tuple]] = [] # (seed, execution state)
 
-    def add_seed(self, seed: bytes):
-        self.queue.append(seed)
+    def add_seed(self, seed: bytes, execution_state: tuple):
+        self.queue.append((seed, execution_state))
 
-    def pop_seed(self) -> bytes:
+    def pop_seed(self) -> tuple[bytes, tuple]:
         return self.queue.pop()
 
     def is_empty(self) -> bool:
@@ -62,11 +62,8 @@ class Fuzzer:
         initial_seed_count = 0
         state_set: ExecutionStateSet = set()
         operator_effectiveness_data: List[OperatorEffectivenessData] = []
-
-        for seed_value in self.seed_inputs:
-            self.seed_queue.add_seed(seed_value)
         
-        for initial_seed in self.seed_queue.queue:
+        for initial_seed in self.seed_inputs:
             result = execute_with_qiling(initial_seed, self.run_config)
             corpus_results.append(result)
             corpus_bytes.add(initial_seed)
@@ -84,6 +81,8 @@ class Fuzzer:
             
             self.corpus_stat_tracker.add_sample(result)
             initial_seed_count += 1
+            
+            self.seed_queue.add_seed(initial_seed, result.execution_state)
 
         self.corpus_stat_tracker.start_tracking()
 
@@ -103,13 +102,8 @@ class Fuzzer:
             if self.seed_queue.is_empty():
                 self.seed_queue.add_seed(random.choice(self._popped_seeds))
             
-            seed = self.seed_queue.pop_seed()
+            seed, execution_state = self.seed_queue.pop_seed()
             self._popped_seeds.append(seed)
-            
-            # Get execution state from last corpus result (or empty if first run)
-            execution_state = tuple()
-            if corpus_results:
-                execution_state = corpus_results[-1].execution_state
             
             mutation_results = self.mutation_engine.mutate(
                 data=seed,
