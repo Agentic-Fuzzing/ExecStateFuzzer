@@ -29,7 +29,8 @@ class SeedQueue:
 
 class Fuzzer:
     def __init__(self):
-        self.run_config = yaml.safe_load(open('config.yaml'))
+        with open('config.yaml') as f:
+            self.run_config = yaml.safe_load(f)
         self.seed_queue = SeedQueue()
         self.corpus_stat_tracker = CorpusStatTracker(MAP_SIZE=(1 << 16), config=self.run_config['corpus_stat_tracker'])
         output_cfg = self.run_config['output']
@@ -39,7 +40,7 @@ class Fuzzer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = Path(output_root) / timestamp
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._popped_seeds: List[bytes] = []
+        self._popped_seeds: List[tuple[bytes, tuple]] = []
         self.all_mutations: List[bytes] = []
         fcfg = self.run_config['fuzzer'] 
         self.seed_inputs: List[bytes] = [codecs.decode(s, 'unicode_escape').encode('latin-1') for s in fcfg['seed_inputs']]
@@ -52,7 +53,6 @@ class Fuzzer:
 
     def run(self):
         corpus_results: List[ExecutionResult] = []
-        corpus_bytes: set[bytes] = set()
         session_mutations: List[bytes] = []
         session_results: List[ExecutionResult] = []
         crashes = []
@@ -66,7 +66,6 @@ class Fuzzer:
         for initial_seed in self.seed_inputs:
             result = execute_with_qiling(initial_seed, self.run_config)
             corpus_results.append(result)
-            corpus_bytes.add(initial_seed)
             if result.execution_outcome == ExecutionOutcome.CRASH:
                 crashes.append(CrashResult(
                     iteration=execution_count,
@@ -100,10 +99,13 @@ class Fuzzer:
                 break
             
             if self.seed_queue.is_empty():
-                self.seed_queue.add_seed(random.choice(self._popped_seeds))
+                if not self._popped_seeds:
+                    break
+                seed, execution_state = random.choice(self._popped_seeds)
+                self.seed_queue.add_seed(seed, execution_state)
             
             seed, execution_state = self.seed_queue.pop_seed()
-            self._popped_seeds.append(seed)
+            self._popped_seeds.append((seed, execution_state))
             
             mutation_results = self.mutation_engine.mutate(
                 data=seed,
@@ -119,9 +121,6 @@ class Fuzzer:
 
             for i, mutation in enumerate(mutations):
                 self.all_mutations.append(mutation)
-
-                if mutation in corpus_bytes:
-                    continue
                 
                 result = execute_with_qiling(mutation, self.run_config)
                 
@@ -141,12 +140,17 @@ class Fuzzer:
                 if result.execution_state not in state_set:
                     new_execution_state = True
                     
-                    self.seed_queue.add_seed(mutation)
+                    edges_before = self.corpus_stat_tracker.get_result().total_edges
+                    
+                    self.seed_queue.add_seed(mutation, result.execution_state)
                     state_set.add(result.execution_state)
         
                     corpus_results.append(result)
-                    corpus_bytes.add(mutation)
                     self.corpus_stat_tracker.add_sample(result)
+                    
+                    # Check if new edges were discovered
+                    edges_after = self.corpus_stat_tracker.get_result().total_edges
+                    new_edge_coverage = edges_after > edges_before
 
                     accepted_results.append(result)
      
@@ -196,18 +200,15 @@ class Fuzzer:
                     self.coverage_plateau_flow.run(session_data_dir)
 
                     # reload config for any new definitions of state
-                    self.run_config = yaml.safe_load(open('config.yaml'))
+                    with open('config.yaml') as f:
+                        self.run_config = yaml.safe_load(f)
                     state_set = set()   # reset state
 
                     seed_injects_raw = self.run_config['fuzzer'].get('seed_injects') or []
                     seed_injects = [codecs.decode(s, 'unicode_escape').encode('latin-1') for s in seed_injects_raw]
                     for seed_inject in seed_injects:
-                        if seed_inject in corpus_bytes:
-                            continue
-                        
                         result = execute_with_qiling(seed_inject, self.run_config)
                         corpus_results.append(result)
-                        corpus_bytes.add(seed_inject)
                         
                         if result.execution_outcome == ExecutionOutcome.CRASH:
                             crashes.append(CrashResult(
@@ -217,7 +218,7 @@ class Fuzzer:
                                 execution_time=result.execution_time
                             ))
                         
-                        self.seed_queue.add_seed(seed_inject)
+                        self.seed_queue.add_seed(seed_inject, result.execution_state)
                         state_set.add(result.execution_state)
                         execution_count += 1
                         execution_time += result.execution_time
@@ -228,7 +229,8 @@ class Fuzzer:
 
                     # reset seed injects for next session
                     self.run_config['fuzzer']['seed_injects'] = []
-                    yaml.dump(self.run_config, open('config.yaml', 'w'))
+                    with open('config.yaml', 'w') as f:
+                        yaml.dump(self.run_config, f)
 
                     session_mutations = []
                     session_results = []
@@ -247,7 +249,7 @@ class Fuzzer:
         fuzzer_result = FuzzerResult(
             total_executions=execution_count,
             inital_seed_count=initial_seed_count,
-            generated_corpus_count=len(corpus_bytes) - initial_seed_count,
+            generated_corpus_count=len(corpus_results) - initial_seed_count,
             total_mutations=len(self.all_mutations),
             unique_mutations=len(set(self.all_mutations)),
             crashes_found=len(crashes),

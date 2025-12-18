@@ -1,9 +1,10 @@
+import hashlib
 import json
 import random
 import importlib.util
 import sys
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional
+from typing import List, Set, Tuple, Dict, Optional
 import importlib
 
 from .utils import eval_predicate_expression
@@ -56,7 +57,10 @@ class MutationEngine:
         self.operators_module = None
         self.operators: Dict[str, callable] = {}
         self.rules: List[dict] = []
-        
+        self.mutation_history: Set[bytes] = set()
+        self.max_mutation_history_size = 1000
+        self.max_retries = 5
+
         self._load_operators()
         self._load_strategy()
     
@@ -157,12 +161,20 @@ class MutationEngine:
             
             # Execute mutation
             try:
-                data_str = data.decode('latin-1')
-                mutated_str = op_func(data_str, state)
-                mutated_data = mutated_str.encode('latin-1')
-                mutations.append((mutated_data, op_name))
+                for _ in range(self.max_retries):
+                    data_str = data.decode('latin-1')
+                    mutated_str = op_func(data_str, state)
+                    mutated_data = mutated_str.encode('latin-1')
+                    m_hash = hashlib.md5(mutated_data).digest()
+                    if m_hash not in self.mutation_history:
+                        self.mutation_history.add(m_hash)
+                        mutations.append((mutated_data, op_name))
+                        break
             except Exception as e:
                 raise RuntimeError(f"Operator '{op_name}' failed: {type(e).__name__}: {e}")
+            
+            if len(self.mutation_history) >= self.max_mutation_history_size:
+                self.mutation_history.pop()
         
         return mutations
 
