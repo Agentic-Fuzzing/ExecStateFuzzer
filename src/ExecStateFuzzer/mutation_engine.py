@@ -18,8 +18,8 @@ def execution_state_tuple_to_dict(state_tuple: tuple) -> dict:
     Labels can be:
     - "name (value)" -> extract "name"
     - "name (sum)" -> extract "name" 
-    - "expr" (for predicates) -> skip (not a named value)
-    - "expr (count)" -> skip (not a named value)
+    - "expr" (for predicates) -> use "expr" as key
+    - "expr (count)" -> use "expr" as key
     - "name (set)" -> extract "name"
     
     Args:
@@ -33,20 +33,10 @@ def execution_state_tuple_to_dict(state_tuple: tuple) -> dict:
     while i < len(state_tuple) - 1:
         label = state_tuple[i]
         value = state_tuple[i + 1]
-        
         if isinstance(label, str):
-            # Extract name from "name (type)" format
-            if '(' in label:
-                name = label.split('(')[0].strip()
-                # Only include if it's a value or sum type (not predicate/counter/set)
-                if '(value)' in label or '(sum)' in label:
-                    result[name] = value
-            # For predicates, the label is the expression itself - skip
-            # For counters, label is "expr (count)" - skip
-            # For sets, we could include but they're tuples - skip for now
-        
+            key = label.split('(')[0].strip() if '(' in label else label
+            result[key] = value
         i += 2
-    
     return result
 
 
