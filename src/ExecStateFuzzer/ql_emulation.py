@@ -135,6 +135,107 @@ def _resolve_symbol_name(symtab, starts, addr: int, img_base: int | None = None)
     return f"0x{addr:x}"
 
 
+def _compute_state_dict(spec: list, execution_value_samples: dict, latest_values: dict, show_execution_values: bool) -> dict:
+    result = {}
+    for item in spec:
+        item_type = item['type']
+        if item_type == 'value':
+            name = item['name']
+            if name in latest_values:
+                result[name] = latest_values[name]
+        elif item_type == 'sum':
+            name = item['name']
+            values = execution_value_samples.get(name, [])
+            total = 0
+            for v in values:
+                total += coerce_value_to_int(v)
+            result[name] = total
+        elif item_type == 'predicate':
+            expr = item['expr']
+            fired = eval_predicate_expression(expr, latest_values)
+            if show_execution_values:
+                try:
+                    print(f"PRED env: {latest_values}")
+                    print(f"PRED expr: {expr} -> {fired}")
+                except Exception:
+                    pass
+            result[expr] = 1 if fired else 0
+        elif item_type == 'counter':
+            expr = item['expr']
+            count = 0
+            max_length = max((len(values) for values in execution_value_samples.values()), default=0)
+            
+            for i in range(max_length):
+                step_values = {}
+                for name, values in execution_value_samples.items():
+                    if i < len(values):
+                        step_values[name] = values[i]
+                
+                if eval_predicate_expression(expr, step_values):
+                    count += 1
+            
+            if show_execution_values:
+                try:
+                    print(f"COUNTER expr: {expr} -> {count} times")
+                except Exception:
+                    pass
+            result[expr] = count
+        elif item_type == 'set':
+            name = item['name']
+            values = execution_value_samples.get(name, [])
+
+            unique_values = set()
+            for v in values:
+                if isinstance(v, (bytes, bytearray)):
+                    unique_values.add(v)
+                elif isinstance(v, int):
+                    unique_values.add(v)
+                else:
+                    unique_values.add(str(v))
+            
+            if show_execution_values:
+                try:
+                    print(f"SET {name}: {tuple(sorted(unique_values))}")
+                except Exception:
+                    pass
+            result[name] = tuple(sorted(unique_values))
+    
+    return result
+
+
+def _dict_to_state_tuple(spec: list, state_dict: dict) -> tuple:
+    computed = []
+    for item in spec:
+        item_type = item['type']
+        if item_type == 'value':
+            name = item['name']
+            if name in state_dict:
+                computed.append(f"{name} (value)")
+                computed.append(state_dict[name])
+        elif item_type == 'sum':
+            name = item['name']
+            if name in state_dict:
+                computed.append(f"{name} (sum)")
+                computed.append(state_dict[name])
+        elif item_type == 'predicate':
+            expr = item['expr']
+            if expr in state_dict:
+                computed.append(expr)
+                computed.append(state_dict[expr])
+        elif item_type == 'counter':
+            expr = item['expr']
+            if expr in state_dict:
+                computed.append(f"{expr} (count)")
+                computed.append(state_dict[expr])
+        elif item_type == 'set':
+            name = item['name']
+            if name in state_dict:
+                computed.append(f"{name} (set)")
+                computed.append(state_dict[name])
+    
+    return tuple(computed)
+
+
 def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool = False, show_execution_values: bool = False) -> ExecutionResult:
     start_time = time.time()
     crash_info = None
@@ -437,78 +538,14 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
         for name, values in execution_value_samples.items():
             print(f"{name}: {values}")
 
-    state_spec = run_config['fuzzer'].get('execution_state') or []
-
     latest_values = {k: v_list[-1] for k, v_list in execution_value_samples.items() if v_list}
 
-    computed_state = []
-    for item in state_spec:
-        item_type = item['type']
-        if item_type == 'value':
-            name = item['name']
-            if name in latest_values:
-                computed_state.append(f"{name} (value)")
-                computed_state.append(latest_values[name])
-        elif item_type == 'sum':
-            name = item['name']
-            values = execution_value_samples.get(name, [])
-            total = 0
-            for v in values:
-                total += coerce_value_to_int(v)
-            computed_state.append(f"{name} (sum)")
-            computed_state.append(total)
-        elif item_type == 'predicate':
-            expr = item['expr']
-            fired = eval_predicate_expression(expr, latest_values)
-            if show_execution_values:
-                try:
-                    print(f"PRED env: {latest_values}")
-                    print(f"PRED expr: {expr} -> {fired}")
-                except Exception:
-                    pass
-            computed_state.append(expr)
-            computed_state.append(1 if fired else 0)
-        elif item_type == 'counter':
-            expr = item['expr']
-            count = 0
-            max_length = max((len(values) for values in execution_value_samples.values()), default=0)
-            
-            for i in range(max_length):
-                step_values = {}
-                for name, values in execution_value_samples.items():
-                    if i < len(values):
-                        step_values[name] = values[i]
-                
-                if eval_predicate_expression(expr, step_values):
-                    count += 1
-            
-            if show_execution_values:
-                try:
-                    print(f"COUNTER expr: {expr} -> {count} times")
-                except Exception:
-                    pass
-            computed_state.append(f"{expr} (count)")
-            computed_state.append(count)
-        elif item_type == 'set':
-            name = item['name']
-            values = execution_value_samples.get(name, [])
+    state_spec = run_config['fuzzer'].get('execution_state') or []
+    computed_state_dict = _compute_state_dict(state_spec, execution_value_samples, latest_values, show_execution_values)
+    computed_state = _dict_to_state_tuple(state_spec, computed_state_dict)
 
-            unique_values = set()
-            for v in values:
-                if isinstance(v, (bytes, bytearray)):
-                    unique_values.add(v)
-                elif isinstance(v, int):
-                    unique_values.add(v)
-                else:
-                    unique_values.add(str(v))
-            
-            if show_execution_values:
-                try:
-                    print(f"SET {name}: {tuple(sorted(unique_values))}")
-                except Exception:
-                    pass
-            computed_state.append(f"{name} (set)")
-            computed_state.append(tuple(sorted(unique_values)))
+    mutation_context_spec = run_config['fuzzer'].get('mutation_context') or []
+    computed_mutation_context = _compute_state_dict(mutation_context_spec, execution_value_samples, latest_values, show_execution_values)
 
     return ExecutionResult(
         input_data=input_data,
@@ -516,6 +553,7 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
         execution_time=execution_time,
         crash_info=crash_info,
         execution_state=tuple(computed_state),
+        mutation_context=computed_mutation_context,
         stdout=(stdout_buffer.decode('latin-1') if 'stdout_buffer' in locals() else None),
         cov_bitmap=cov_bitmap,
         branch_taken_bitmap=branch_taken,

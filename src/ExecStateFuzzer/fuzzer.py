@@ -16,12 +16,12 @@ from .coverage_plateau_flow import CoveragePlateauFlow
 
 class SeedQueue:
     def __init__(self):
-        self.queue : List[tuple[bytes, tuple]] = [] # (seed, execution state)
+        self.queue : List[tuple[bytes, dict]] = [] # (seed, mutation context)
 
-    def add_seed(self, seed: bytes, execution_state: tuple):
-        self.queue.append((seed, execution_state))
+    def add_seed(self, seed: bytes, mutation_context: dict):
+        self.queue.append((seed, mutation_context))
 
-    def pop_seed(self) -> tuple[bytes, tuple]:
+    def pop_seed(self) -> tuple[bytes, dict]:
         return self.queue.pop()
 
     def is_empty(self) -> bool:
@@ -40,7 +40,7 @@ class Fuzzer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = Path(output_root) / timestamp
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._popped_seeds: List[tuple[bytes, tuple]] = []
+        self._popped_seeds: List[tuple[bytes, dict]] = []
         self.all_mutations: List[bytes] = []
         fcfg = self.run_config['fuzzer'] 
         self.seed_inputs: List[bytes] = [codecs.decode(s, 'unicode_escape').encode('latin-1') for s in fcfg['seed_inputs']]
@@ -81,7 +81,7 @@ class Fuzzer:
             self.corpus_stat_tracker.add_sample(result)
             initial_seed_count += 1
             
-            self.seed_queue.add_seed(initial_seed, result.execution_state)
+            self.seed_queue.add_seed(initial_seed, result.mutation_context)
 
         self.corpus_stat_tracker.start_tracking()
 
@@ -101,15 +101,15 @@ class Fuzzer:
             if self.seed_queue.is_empty():
                 if not self._popped_seeds:
                     break
-                seed, execution_state = random.choice(self._popped_seeds)
-                self.seed_queue.add_seed(seed, execution_state)
+                seed, mutation_context = random.choice(self._popped_seeds)
+                self.seed_queue.add_seed(seed, mutation_context)
             
-            seed, execution_state = self.seed_queue.pop_seed()
-            self._popped_seeds.append((seed, execution_state))
+            seed, mutation_context = self.seed_queue.pop_seed()
+            self._popped_seeds.append((seed, mutation_context))
             
             mutation_results = self.mutation_engine.mutate(
                 data=seed,
-                state_tuple=execution_state,
+                mutation_context=mutation_context,
                 num_mutations=num_mutations
             )
             
@@ -142,7 +142,7 @@ class Fuzzer:
                     
                     edges_before = self.corpus_stat_tracker.get_result().total_edges
                     
-                    self.seed_queue.add_seed(mutation, result.execution_state)
+                    self.seed_queue.add_seed(mutation, result.mutation_context)
                     state_set.add(result.execution_state)
         
                     corpus_results.append(result)
@@ -218,7 +218,7 @@ class Fuzzer:
                                 execution_time=result.execution_time
                             ))
                         
-                        self.seed_queue.add_seed(seed_inject, result.execution_state)
+                        self.seed_queue.add_seed(seed_inject, result.mutation_context)
                         state_set.add(result.execution_state)
                         execution_count += 1
                         execution_time += result.execution_time

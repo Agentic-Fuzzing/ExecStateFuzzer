@@ -1,42 +1,59 @@
 _meta:
   editable_keys:
-  - description: |
-      List of seed inputs (meant to be used for initial seeding only).
+  - description: 'List of seed inputs (meant to be used for initial seeding only).
+
+      '
     path: fuzzer.seed_inputs
     type: list
-  - description: |
-      List of seed injects (meant to be used for coverage plateau flow only).
+  - description: 'List of seed injects (meant to be used for coverage plateau flow
+      only).
+
+      '
     path: fuzzer.seed_injects
     type: list
-  - description: |
-      List of execution values definitions. Each value can include:
-        - name: semantic name of the value
-        - type: type of the value, one of: int, float, bool, string
-        - notes: human-readable explanation
+  - description: "List of execution values definitions. Each value can include:\n\
+      \  - name: semantic name of the value\n  - type: type of the value, one of:\
+      \ int, float, bool, string\n  - notes: human-readable explanation\n"
     path: fuzzer.execution_values
     type: list
-  - description: |
-      List of execution state definitions, they are either values, predicates, sums, counters, or sets.
+  - description: 'List of execution state definitions, they are either values, predicates,
+      sums, counters, or sets.
+
 
       Each definition takes up a value in the execution state tuple.
-      
+
+
       - type: predicate # boolean expression using <execution_value_name> and real
+
       values, operators: ==, !=, <, >, <=, >=, &&, ||
+
       - expr: # boolean expression using <execution_value_name> and real values, operators:
+
       ==, !=, <, >, <=, >=, &&, ||
+
 
       - type: value # last value of the given execution value name
+
       - name: <execution_value_name>
+
 
       - type: sum # sum of all values seen for the given execution value name
+
       - name: <execution_value_name>
+
 
       - type: counter # count of how many times the boolean expression is true
+
       - expr: # boolean expression using <execution_value_name> and real values, operators:
+
       ==, !=, <, >, <=, >=, &&, ||
 
+
       - type: set # set of all values seen for the given execution value name
+
       - name: <execution_value_name>
+
+      '
     path: fuzzer.execution_state
     type: list
 corpus_stat_tracker:
@@ -52,56 +69,27 @@ coverage_plateau_flow:
 fuzzer:
   execution_limit: 0
   execution_state:
-  - name: command
+  - name: board_state
     type: value
-  - name: player_char
+  - name: current_team
     type: value
-  - name: move_success
+  mutation_context:
+  - name: board_state
     type: value
-  - name: total_moves
+  - name: current_team
     type: value
-  - name: game_over
-    type: value
-  - name: player_won
-    type: value
-  - name: player_score
-    type: value
-  - name: start_over
+  - name: valid_moves
     type: value
   execution_values:
-  - name: command
-    notes: 1=PLAY, 2=PLAY AGAIN, 3=START OVER, 4=QUIT, 0=invalid
+  - name: board_state
+    notes: Serialized 8x8 chess board state as 64-character string
+    type: string
+  - name: current_team
+    notes: Current team to move (0=BLACK_TEAM, 1=WHITE_TEAM)
     type: int
-  - name: player_char
-    notes: 1=P (goes first), 2=Q
+  - name: valid_moves
+    notes: Count of valid moves available for current team
     type: int
-  - name: player_move_row
-    notes: Row coordinate of player move (0-2)
-    type: int
-  - name: player_move_col
-    notes: Column coordinate of player move (0-2)
-    type: int
-  - name: move_success
-    notes: 1 if move was valid, 0 if invalid
-    type: bool
-  - name: total_moves
-    notes: Total moves in current game
-    type: int
-  - name: game_over
-    notes: 1 when game ends
-    type: bool
-  - name: player_won
-    notes: 1 if player won, 0 if computer won
-    type: bool
-  - name: player_score
-    notes: Player win count
-    type: int
-  - name: computer_score
-    notes: Computer win count
-    type: int
-  - name: start_over
-    notes: 1 when START OVER command used (triggers vulnerability)
-    type: bool
   function_profile:
     sample_every: 100
     target_only: true
@@ -122,6 +110,6 @@ input:
 output:
   dir: out
 target:
-  binary_path: NRFIN_00005
-  cgc_binary: NRFIN_00005
+  binary_path: /home/andrewyin/ExecStateFuzzer/cgc-cbs/cqe-challenges/CROMU_00005/CROMU_00005
+  cgc_binary: CROMU_00005
   rootfs: rootfs/x8664_linux_glibc2.39

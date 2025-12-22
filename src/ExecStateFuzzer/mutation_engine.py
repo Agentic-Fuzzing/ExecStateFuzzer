@@ -10,36 +10,6 @@ import importlib
 from .utils import eval_predicate_expression
 
 
-def execution_state_tuple_to_dict(state_tuple: tuple) -> dict:
-    """
-    Convert execution_state tuple to a dictionary of execution values.
-    
-    The tuple format is: (label, value, label, value, ...)
-    Labels can be:
-    - "name (value)" -> extract "name"
-    - "name (sum)" -> extract "name" 
-    - "expr" (for predicates) -> use "expr" as key
-    - "expr (count)" -> use "expr" as key
-    - "name (set)" -> extract "name"
-    
-    Args:
-        state_tuple: Execution state tuple from ExecutionResult
-        
-    Returns:
-        Dictionary mapping execution value names to their latest values
-    """
-    result = {}
-    i = 0
-    while i < len(state_tuple) - 1:
-        label = state_tuple[i]
-        value = state_tuple[i + 1]
-        if isinstance(label, str):
-            key = label.split('(')[0].strip() if '(' in label else label
-            result[key] = value
-        i += 2
-    return result
-
-
 class MutationEngine:    
     def __init__(self, operators_file: str, strategy_file: str):
         self.operators_file = Path(operators_file).resolve()
@@ -73,7 +43,7 @@ class MutationEngine:
                 continue
             obj = getattr(self.operators_module, name)
             if callable(obj):
-                # Check signature - should accept (data: str, state: dict)
+                # Check signature - should accept (data: str, mutation_context: dict)
                 import inspect
                 sig = inspect.signature(obj)
                 params = list(sig.parameters.values())
@@ -108,13 +78,13 @@ class MutationEngine:
         self._load_operators()
         self._load_strategy()
     
-    def select_rule(self, state: dict) -> Optional[dict]:
+    def select_rule(self, mutation_context: dict) -> Optional[dict]:
         for rule in self.rules:
             condition = rule.get('condition')
             if condition is None:
                 # Null condition means always match
                 return rule
-            if eval_predicate_expression(condition, state):
+            if eval_predicate_expression(condition, mutation_context):
                 return rule
         
         return None
@@ -127,21 +97,18 @@ class MutationEngine:
         selected = random.choices(names, weights=weights)[0]
         return selected
     
-    def mutate(self, data: bytes, state_tuple: tuple, num_mutations: int) -> List[Tuple[bytes, str]]:
+    def mutate(self, data: bytes, mutation_context: dict, num_mutations: int) -> List[Tuple[bytes, str]]:
         if not self.operators:
             raise ValueError("No operators loaded")
         if not self.rules:
             raise ValueError("No rules defined in strategy")
         
-        # Convert state tuple to dict
-        state = execution_state_tuple_to_dict(state_tuple)
-        
         mutations = []
         for _ in range(num_mutations):
             # Select matching rule
-            rule = self.select_rule(state)
+            rule = self.select_rule(mutation_context)
             if rule is None:
-                raise ValueError(f"No matching rule for state: {state}")
+                raise ValueError(f"No matching rule for mutation context: {mutation_context}")
             
             # Select operator from rule
             op_name = self.select_operator(rule)
@@ -153,7 +120,7 @@ class MutationEngine:
             try:
                 for _ in range(self.max_retries):
                     data_str = data.decode('latin-1')
-                    mutated_str = op_func(data_str, state)
+                    mutated_str = op_func(data_str, mutation_context)
                     mutated_data = mutated_str.encode('latin-1')
                     m_hash = hashlib.md5(mutated_data).digest()
                     if m_hash not in self.mutation_history:

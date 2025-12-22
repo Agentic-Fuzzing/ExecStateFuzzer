@@ -20,6 +20,7 @@ class ExecutionResult(BaseModel):
     execution_time: float
     crash_info: Optional[str]
     execution_state: tuple
+    mutation_context: dict
     stdout: Optional[str]
     cov_bitmap: Optional[bytearray]
     branch_taken_bitmap: Optional[bytearray]

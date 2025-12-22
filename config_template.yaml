@@ -39,6 +39,32 @@ _meta:
       - name: <execution_value_name>
     path: fuzzer.execution_state
     type: list
+  - description: |
+      List of mutation context definitions, they are either values, predicates, sums, counters, or sets.
+
+      Each definition takes up a value in the mutation context tuple.
+      
+      This is used for mutation decisions, separate from execution_state which is used for state comparison.
+      
+      - type: predicate # boolean expression using <execution_value_name> and real
+      values, operators: ==, !=, <, >, <=, >=, &&, ||
+      - expr: # boolean expression using <execution_value_name> and real values, operators:
+      ==, !=, <, >, <=, >=, &&, ||
+
+      - type: value # last value of the given execution value name
+      - name: <execution_value_name>
+
+      - type: sum # sum of all values seen for the given execution value name
+      - name: <execution_value_name>
+
+      - type: counter # count of how many times the boolean expression is true
+      - expr: # boolean expression using <execution_value_name> and real values, operators:
+      ==, !=, <, >, <=, >=, &&, ||
+
+      - type: set # set of all values seen for the given execution value name
+      - name: <execution_value_name>
+    path: fuzzer.mutation_context
+    type: list
 
 corpus_stat_tracker:
   coverage_plateau_timeout_seconds: 100
@@ -54,8 +80,9 @@ coverage_plateau_flow:
 
 fuzzer:
   execution_limit: 0
-  execution_state:
   execution_values:
+  execution_state:
+  mutation_context:
   function_profile:
     sample_every: 100
     target_only: true

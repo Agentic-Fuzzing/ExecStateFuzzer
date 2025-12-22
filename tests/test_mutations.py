@@ -2,7 +2,7 @@ import yaml
 import argparse
 import traceback
 
-from ExecStateFuzzer.mutation_engine import MutationEngine, execution_state_tuple_to_dict
+from ExecStateFuzzer.mutation_engine import MutationEngine
 from ExecStateFuzzer.ql_emulation import execute_with_qiling
 
 parser = argparse.ArgumentParser()
@@ -31,11 +31,12 @@ print("Running emulation to get execution state...")
 input_bytes = input_data.encode('latin-1')
 execution_result = execute_with_qiling(input_bytes, run_config)
 execution_state = execution_result.execution_state
+mutation_context = execution_result.mutation_context
 
 print(f"Execution state: {execution_state}\n")
 
-state_dict = execution_state_tuple_to_dict(execution_state) if execution_state else {}
-rule = engine.select_rule(state_dict)
+mutation_context = execution_result.mutation_context
+rule = engine.select_rule(mutation_context)
 if rule:
     print(f"Selected rule: {rule.get('name', 'unknown')}")
     print(f"Rule condition: {rule.get('condition', 'null (always)')}")
@@ -49,7 +50,7 @@ num_mutations = 5
 try:
     mutated_results = engine.mutate(
         data=input_bytes,
-        state_tuple=execution_state,
+        mutation_context=mutation_context,
         num_mutations=num_mutations
     )
     

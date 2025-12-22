@@ -2,6 +2,7 @@
     "rules": [
         {
             "name": "insert_random_bytes",
+            "condition": null,
             "operators": [
                 ["insert_random_bytes", 1]
             ]
