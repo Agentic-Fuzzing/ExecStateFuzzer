@@ -6,7 +6,7 @@ from ExecStateFuzzer.mutation_engine import MutationEngine
 from ExecStateFuzzer.ql_emulation import execute_with_qiling
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--input', type=str, required=True)
+parser.add_argument('input', type=str)
 args = parser.parse_args()
 
 input_data = args.input

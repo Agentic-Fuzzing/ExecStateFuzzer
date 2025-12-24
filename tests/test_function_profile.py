@@ -5,7 +5,7 @@ from ExecStateFuzzer.ql_emulation import execute_with_qiling
 
 def main():
     ap = argparse.ArgumentParser(description="Run Qiling with sampling profiler and print function hotspots.")
-    ap.add_argument("--input", type=str, required=True)
+    ap.add_argument('input', type=str)
     args = ap.parse_args()
 
     input_data = codecs.decode(args.input, 'unicode_escape').encode('latin-1')
