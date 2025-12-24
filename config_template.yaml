@@ -94,7 +94,7 @@ fuzzer:
   per_run_timeout: 5
   seed_injects:
   seed_inputs:
-  stdout: true
+  stdout: false
   time_limit: 300
 
 input:

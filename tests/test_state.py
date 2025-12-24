@@ -4,7 +4,7 @@ import codecs
 from ExecStateFuzzer.ql_emulation import execute_with_qiling
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--input', type=str, required=True)
+parser.add_argument('input', type=str)
 args = parser.parse_args()
 
 
@@ -14,8 +14,8 @@ run_config = yaml.safe_load(open("config.yaml"))
 
 try:
     result = execute_with_qiling(input_data, run_config, show_execution_values=True)
-    execution_state = result.execution_state
-    print(f"Execution state: {execution_state}")
+    print(f"Execution state: {result.execution_state}")
+    print(f"Mutation context: {result.mutation_context}")
     
 except Exception as e:
     print(str(e))

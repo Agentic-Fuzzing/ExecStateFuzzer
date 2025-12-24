@@ -101,9 +101,9 @@ fuzzer:
   per_run_timeout: 5
   seed_injects: []
   seed_inputs:
-  - PLAY\x07P\x070 0\x071 1\x072 2\x07QUIT\x07
-  - PLAY\x07Q\x070 0\x071 1\x072 0\x07QUIT\x07
-  stdout: true
+  - 1,1 1,2\n666
+  - 1,1 1,3\n666
+  stdout: false
   time_limit: 300
 input:
   method: stdin
