@@ -46,14 +46,6 @@ class CorpusStatResult(BaseModel):
     avg_calldepth: float
     max_calldepth: int
 
-class CoverageSnapshot(BaseModel):
-    timestamp: float
-    execution_count: int
-    total_edges: int
-    total_branch_sites: int
-    total_unique_instructions: int
-    cumulative_execution_time: float
-
 class TokenUsage(BaseModel):
     input_tokens: int
     output_tokens: int
@@ -71,7 +63,6 @@ class FuzzerResult(BaseModel):
     crash_rate: float
     corpus_stat_result: CorpusStatResult
     token_usage: TokenUsage
-    coverage_over_time: List[CoverageSnapshot]
 
 class OperatorEffectivenessData(BaseModel):
     operator_name: str

@@ -84,9 +84,47 @@ def _compute_image_range(image) -> tuple[int, int]:
         if ph_min is not None and ph_max is not None and ph_max > ph_min:
             length = ph_max - ph_min
             return base, base + int(length)
+    elif ei_class == 1:  # ELF32 (CGC binaries)
+        endian = '<' if ei_data == 1 else '>'
+        # e_phoff @0x1C (4), e_phentsize @0x2A (2), e_phnum @0x2C (2)
+        e_phoff = struct.unpack_from(endian + 'I', data, 0x1C)[0]
+        # read more if needed
+        if e_phoff + 32 > len(data):
+            try:
+                with open(img_path, 'rb') as f:
+                    data = f.read()
+            except Exception as e:
+                sys.stderr.write(f"[error] failed to read full ELF: {e}\n")
+                sys.stderr.flush()
+                return base, base
+        e_phentsize = struct.unpack_from(endian + 'H', data, 0x2A)[0]
+        e_phnum = struct.unpack_from(endian + 'H', data, 0x2C)[0]
+        if e_phentsize == 0 or e_phnum == 0:
+            return base, base
+        ph_min = None
+        ph_max = None
+        for i in range(e_phnum):
+            off = e_phoff + i * e_phentsize
+            if off + e_phentsize > len(data):
+                break
+            p_type = struct.unpack_from(endian + 'I', data, off)[0]
+            if p_type != 1:  # PT_LOAD
+                continue
+            p_vaddr = struct.unpack_from(endian + 'I', data, off + 0x8)[0]
+            p_memsz = struct.unpack_from(endian + 'I', data, off + 0x14)[0]
+            if p_memsz == 0:
+                continue
+            seg_start = p_vaddr
+            seg_end = p_vaddr + p_memsz
+            ph_min = seg_start if ph_min is None else min(ph_min, seg_start)
+            ph_max = seg_end if ph_max is None else max(ph_max, seg_end)
+        if ph_min is not None and ph_max is not None and ph_max > ph_min:
+            length = ph_max - ph_min
+            return base, base + int(length)
     else:
         sys.stderr.write("[error] unsupported ELF class for range computation\n")
         sys.stderr.flush()
+    return base, base
 
 def _load_func_symbols_safe(elf_path: str):
     try:
@@ -285,6 +323,7 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
     try:
         if STDOUT:
             print(f"Executing with input: {input_data.decode('latin-1')}")
+
         ql = Qiling([BINARY_PATH], ROOTFS_PATH, console=False)
 
         img = None
@@ -294,7 +333,7 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
                 break
         
         assert img is not None, f"Could not find {BINARY_PATH} image in loaded images: {[img.path for img in ql.loader.images]}"
-        
+
         img_base, img_end = _compute_image_range(img)
 
         if Cs is not None:
@@ -406,9 +445,6 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
         
         ql.os.stdin = pipe.SimpleInStream(0)
         ql.os.stdin.write(input_data)
-
-        # stdout_buffer = bytearray()
-        # ql.os.stdout = pipe.SimpleOutStream(1)
         
         run_done = threading.Event()
         run_exc: List[BaseException] = []
@@ -453,17 +489,6 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
                 crash_info = f"{ql.internal_exception}"
             else:
                 execution_outcome = ExecutionOutcome.NORMAL
-        
-        # Capture stdout output
-        # stdout_buffer = bytearray(ql.os.stdout.getvalue())
-        
-        # Print stdout if enabled
-        # if STDOUT and stdout_buffer:
-        #     try:
-        #         sys.stdout.buffer.write(stdout_buffer)
-        #         sys.stdout.flush()
-        #     except Exception:
-        #         pass
         
     except Exception as e:
         execution_time = time.time() - start_time

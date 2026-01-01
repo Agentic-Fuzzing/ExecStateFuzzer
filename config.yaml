@@ -104,12 +104,12 @@ fuzzer:
   - 1,1 1,2\n666
   - 1,1 1,3\n666
   stdout: false
-  time_limit: 300
+  time_limit: 30
 input:
   method: stdin
 output:
   dir: out
 target:
-  binary_path: /home/andrewyin/ExecStateFuzzer/cgc-cbs/cqe-challenges/CROMU_00005/CROMU_00005
-  cgc_binary: CROMU_00005
-  rootfs: rootfs/x8664_linux_glibc2.39
+  binary_path: /home/andrewyin/ExecStateFuzzer/cgc-cbs/cqe-challenges/NRFIN_00005/NRFIN_00005
+  cgc_binary: NRFIN_00005
+  rootfs: rootfs/x86_linux

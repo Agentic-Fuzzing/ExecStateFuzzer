@@ -67,7 +67,7 @@ _meta:
     type: list
 
 corpus_stat_tracker:
-  coverage_plateau_timeout_seconds: 100
+  coverage_plateau_timeout_seconds: 1800
   snapshot_interval_seconds: 10
 
 coverage_plateau_flow:
@@ -95,7 +95,7 @@ fuzzer:
   seed_injects:
   seed_inputs:
   stdout: false
-  time_limit: 300
+  time_limit: 1800
 
 input:
   method: stdin
@@ -106,4 +106,4 @@ output:
 target:
   binary_path:
   cgc_binary:
-  rootfs: rootfs/x8664_linux_glibc2.39
+  rootfs: rootfs/x86_linux

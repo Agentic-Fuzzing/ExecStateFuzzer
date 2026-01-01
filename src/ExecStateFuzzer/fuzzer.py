@@ -40,6 +40,9 @@ class Fuzzer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_dir = Path(output_root) / timestamp
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.corpus_dir = self.output_dir / 'corpus'
+        self.corpus_dir.mkdir(parents=True, exist_ok=True)
+        self.corpus_file_counter = 0
         self._popped_seeds: List[tuple[bytes, dict]] = []
         self.all_mutations: List[bytes] = []
         fcfg = self.run_config['fuzzer'] 
@@ -83,7 +86,10 @@ class Fuzzer:
             
             self.seed_queue.add_seed(initial_seed, result.mutation_context)
 
-        self.corpus_stat_tracker.start_tracking()
+            corpus_file_path = self.corpus_dir / f'corpus_{self.corpus_file_counter:06d}'
+            with open(corpus_file_path, 'wb') as f:
+                f.write(initial_seed)
+            self.corpus_file_counter += 1
 
         def _under_time_limit() -> bool:
             time_limit = self.run_config['fuzzer']['time_limit']
@@ -153,6 +159,11 @@ class Fuzzer:
                     new_edge_coverage = edges_after > edges_before
 
                     accepted_results.append(result)
+                    
+                    corpus_file_path = self.corpus_dir / f'corpus_{self.corpus_file_counter:06d}'
+                    with open(corpus_file_path, 'wb') as f:
+                        f.write(mutation)
+                    self.corpus_file_counter += 1
      
                 op_effectiveness = OperatorEffectivenessData(
                     operator_name=op_name,
@@ -243,9 +254,6 @@ class Fuzzer:
             if stop_due_to_time:
                 break
         
-        self.corpus_stat_tracker.stop()
-        self.corpus_stat_tracker.force_snapshot()
-        
         fuzzer_result = FuzzerResult(
             total_executions=execution_count,
             inital_seed_count=initial_seed_count,
@@ -258,7 +266,6 @@ class Fuzzer:
             crash_rate=((len(crashes) / execution_count) if execution_count > 0 else 0),
             corpus_stat_result=self.corpus_stat_tracker.get_result(),
             token_usage=TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0),  # No token usage for operators fuzzer
-            coverage_over_time=self.corpus_stat_tracker.get_coverage_snapshots(),
         )
 
         self.print_summary(fuzzer_result, crashes)
@@ -266,7 +273,6 @@ class Fuzzer:
         self.save_results(corpus_results, self.output_dir / 'corpus_results.json')
         self.save_crashes(crashes)
         self.save_mutations()
-        self.save_coverage_over_time(fuzzer_result.coverage_over_time)
     
     def print_summary(self, fuzzer_result: FuzzerResult, crashes: List[CrashResult]):
         print("\n=== Fuzzing Summary ===")
@@ -379,13 +385,6 @@ class Fuzzer:
             json.dump(mutations_data, f, indent=2)
         print(f"Saved {len(self.all_mutations)} mutations to {path}")
 
-    def save_coverage_over_time(self, coverage_snapshots: List):
-        path = self.output_dir / 'coverage_over_time.json'
-        serializable = [snapshot.model_dump() for snapshot in coverage_snapshots]
-        with open(path, 'w') as f:
-            json.dump(serializable, f, indent=2)
-        print(f"Saved {len(coverage_snapshots)} coverage snapshots to {path}")
-    
     def create_operator_effectiveness_summary(self, operator_effectiveness_data: List[OperatorEffectivenessData]) -> List[OperatorEffectivenessSummary]:
         if not operator_effectiveness_data:
             return []
