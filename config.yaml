@@ -110,6 +110,6 @@ input:
 output:
   dir: out
 target:
-  binary_path: /home/andrewyin/ExecStateFuzzer/cgc-cbs/cqe-challenges/NRFIN_00005/NRFIN_00005
-  cgc_binary: NRFIN_00005
-  rootfs: rootfs/x86_linux
+  binary_path: /home/andrewyin/ExecStateFuzzer/cgc-cbs/cqe-challenges/CROMU_00005/CROMU_00005
+  cgc_binary: CROMU_00005
+  rootfs: rootfs/x86_linux_glibc2.39

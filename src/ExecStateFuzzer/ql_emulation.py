@@ -1,4 +1,5 @@
 import time
+import os
 
 from qiling.const import QL_INTERCEPT
 from .models import ExecutionResult, ExecutionOutcome, FunctionHotspot
@@ -10,23 +11,16 @@ import threading
 import sys
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
 
-class _InputFD:
-    def __init__(self, data: bytes):
-        self._data = data
-        self._pos = 0
 
-    def read(self, size: int) -> bytes:
-        if self._pos >= len(self._data) or size <= 0:
-            return b""
-        nl = self._data.find(b"\n", self._pos)
-        if nl != -1:
-            line_end = nl + 1
-            end = min(self._pos + size, line_end)
-        else:
-            end = min(len(self._data), self._pos + size)
-        chunk = self._data[self._pos:end]
-        self._pos = end
-        return chunk
+def _elf_class(path: str) -> int | None:
+    try:
+        with open(path, "rb") as f:
+            hdr = f.read(6)
+    except Exception:
+        return None
+    if len(hdr) < 6 or hdr[:4] != b"\x7fELF":
+        return None
+    return int(hdr[4])
 
 def _compute_image_range(image) -> tuple[int, int]:
     base = int(getattr(image, 'base', 0))
@@ -321,6 +315,23 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
         sys.stderr.flush()
 
     try:
+        # Suppress Unicorn's deprecated/undefined register-access warning spam unless the
+        # user explicitly opted in to seeing it.
+        os.environ.setdefault("UC_IGNORE_REG_BREAK", "1")
+
+        elf_cls = _elf_class(BINARY_PATH)  # 1=ELF32, 2=ELF64
+        rootfs_abs = os.path.abspath(ROOTFS_PATH)
+        libdir = os.path.join(rootfs_abs, "lib")
+        if elf_cls == 1:
+            needed = ("ld-linux.so.2", "libc.so.6", "libm.so.6")
+            missing = [lib for lib in needed if not os.path.exists(os.path.join(libdir, lib))]
+            if missing:
+                raise FileNotFoundError(
+                    f"Qiling rootfs is missing {missing} under {libdir}. "
+                    f"Set `target.rootfs` to a complete x86 rootfs (e.g. `rootfs/x86_linux_glibc2.39`) "
+                    "and ensure its `lib/` contains the needed glibc libs."
+                )
+
         if STDOUT:
             print(f"Executing with input: {input_data.decode('latin-1')}")
 
@@ -392,28 +403,6 @@ def execute_with_qiling(input_data: bytes, run_config: dict, force_stdout: bool 
                         call_depth[0] -= 1
 
         ql.hook_code(instruction_cov_cb)
-
-        input_fd = 100
-        ql.os.fd[input_fd] = _InputFD(input_data)
-
-        def read_hook(ql, fd, buf, count):
-            if fd != 0:
-                return None
-
-            try:
-                prim = ql.os.fd[input_fd]
-            except Exception:
-                prim = None
-            if prim is not None and getattr(prim, '_pos', 0) < len(getattr(prim, '_data', b'')):
-                return (None, [input_fd, buf, count])
-
-            try:
-                ql.emu_stop()
-            except Exception:
-                pass
-            return (-1, [fd, buf, count])
-
-        ql.os.set_syscall('read', read_hook, intercept=QL_INTERCEPT.ENTER)
 
         stdout_buffer = bytearray()
 
