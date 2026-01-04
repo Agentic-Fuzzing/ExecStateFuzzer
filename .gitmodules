@@ -1,0 +1,6 @@
+[submodule "cgc-cbs"]
+	path = cgc-cbs
+	url = https://github.com/andrewy1n/cgc-cbs.git
+[submodule "rootfs"]
+	path = rootfs
+	url = https://github.com/qilingframework/rootfs
