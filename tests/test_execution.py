@@ -13,9 +13,8 @@ input_data = codecs.decode(args.input, 'unicode_escape').encode('latin-1')
 run_config = yaml.safe_load(open("config.yaml"))
 
 try:
-    result = execute_binary(input_data, run_config, show_execution_values=True)
-    print(f"Execution state: {result.execution_state}")
-    print(f"Mutation context: {result.mutation_context}")
-    
+    result = execute_binary(input_data, run_config)
+    print(result.model_dump_json(indent=1))
+
 except Exception as e:
     print(str(e))

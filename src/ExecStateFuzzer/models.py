@@ -61,7 +61,7 @@ class FuzzerResult(BaseModel):
     total_execution_time_seconds: float
     average_execution_time_seconds: float
     crash_rate: float
-    corpus_stat_result: CorpusStatResult
+    corpus_stat_result: CorpusStatResult | None = None
     token_usage: TokenUsage
 
 class OperatorEffectivenessData(BaseModel):

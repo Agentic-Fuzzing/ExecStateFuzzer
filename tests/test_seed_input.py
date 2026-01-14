@@ -1,7 +1,7 @@
 import yaml
 import codecs
 from typing import Any, Tuple
-from ExecStateFuzzer.ql_emulation import execute_with_qiling
+from ExecStateFuzzer.subprocess_execution import execute_binary
 
 run_config = yaml.safe_load(open("config.yaml"))
 
@@ -10,7 +10,7 @@ execution_state_set = set[Tuple[Any, ...]]()
 for seed_value in run_config['fuzzer']['seed_inputs']:
     input_data = codecs.decode(seed_value, 'unicode_escape').encode('latin-1')
 
-    result = execute_with_qiling(input_data, run_config)
+    result = execute_binary(input_data, run_config)
 
     results.append({'seed': input_data, 'execution_state': result.execution_state})
     execution_state_set.add(result.execution_state)

@@ -2,15 +2,15 @@ import yaml
 import time
 import json
 import codecs
+import base64
 from pathlib import Path
 from typing import List
 import random
 from datetime import datetime
 
-from .models import CrashResult, ExecutionResult, ExecutionStateSet, ExecutionOutcome, FuzzerResult, OperatorEffectivenessData, SessionData, TokenUsage
-from .models import OperatorEffectivenessSummary
-from .ql_emulation import execute_with_qiling
-from .corpus_stat_tracker import CorpusStatTracker
+from .models import CrashResult, ExecutionStateSet, ExecutionOutcome, FuzzerResult, OperatorEffectivenessData, SessionData, TokenUsage, OperatorEffectivenessSummary
+from .subprocess_execution import execute_binary, BinaryExecutionResult
+# from .corpus_stat_tracker import CorpusStatTracker
 from .mutation_engine import MutationEngine
 from .coverage_plateau_flow import CoveragePlateauFlow
 
@@ -32,7 +32,7 @@ class Fuzzer:
         with open('config.yaml') as f:
             self.run_config = yaml.safe_load(f)
         self.seed_queue = SeedQueue()
-        self.corpus_stat_tracker = CorpusStatTracker(MAP_SIZE=(1 << 16), config=self.run_config['corpus_stat_tracker'])
+        # self.corpus_stat_tracker = CorpusStatTracker(MAP_SIZE=(1 << 16), config=self.run_config['corpus_stat_tracker'])
         output_cfg = self.run_config['output']
 
         output_root = output_cfg['dir']
@@ -52,12 +52,17 @@ class Fuzzer:
             operators_file=mutations_cfg['operators_file'],
             strategy_file=mutations_cfg['strategy_file']
         )
-        self.coverage_plateau_flow = CoveragePlateauFlow(config=self.run_config['coverage_plateau_flow'], challenge_name=self.run_config['target']['cgc_binary'])
+
+        self.coverage_plateau_timeout_seconds = fcfg['coverage_plateau_timeout_seconds']
+        self.coverage_plateau_flow = CoveragePlateauFlow(
+            config=self.run_config['coverage_plateau_flow'],
+            challenge_name=self.run_config['target']['cgc_binary'],
+        )
 
     def run(self):
-        corpus_results: List[ExecutionResult] = []
+        corpus_results: List[BinaryExecutionResult] = []
         session_mutations: List[bytes] = []
-        session_results: List[ExecutionResult] = []
+        session_results: List[BinaryExecutionResult] = []
         crashes = []
         start_time = time.time()
         execution_count = 0
@@ -67,7 +72,7 @@ class Fuzzer:
         operator_effectiveness_data: List[OperatorEffectivenessData] = []
         
         for initial_seed in self.seed_inputs:
-            result = execute_with_qiling(initial_seed, self.run_config)
+            result = execute_binary(initial_seed, self.run_config)
             corpus_results.append(result)
             if result.execution_outcome == ExecutionOutcome.CRASH:
                 crashes.append(CrashResult(
@@ -81,7 +86,7 @@ class Fuzzer:
             execution_count += 1
             execution_time += result.execution_time
             
-            self.corpus_stat_tracker.add_sample(result)
+            # self.corpus_stat_tracker.add_sample(result)
             initial_seed_count += 1
             
             self.seed_queue.add_seed(initial_seed, result.mutation_context)
@@ -99,6 +104,7 @@ class Fuzzer:
 
         stop_due_to_time = False
         num_mutations = self.run_config['fuzzer']['mutations']['num_mutations']
+        self.last_increase_state_coverage_time = time.time()
 
         while True:
             if (not _under_time_limit()):
@@ -123,12 +129,12 @@ class Fuzzer:
             mutations = [m[0] for m in mutation_results]
             operator_data = [m[1] for m in mutation_results]
             
-            accepted_results: list[ExecutionResult] = []
+            accepted_results: list[BinaryExecutionResult] = []
 
             for i, mutation in enumerate(mutations):
                 self.all_mutations.append(mutation)
                 
-                result = execute_with_qiling(mutation, self.run_config)
+                result = execute_binary(mutation, self.run_config)
                 
                 op_name = operator_data[i] if i < len(operator_data) else 'unknown'
                 new_edge_coverage = False
@@ -145,18 +151,19 @@ class Fuzzer:
                 # if the execution state is new, add it to the state set and the corpus results
                 if result.execution_state not in state_set:
                     new_execution_state = True
+                    self.last_increase_state_coverage_time = time.time()
                     
-                    edges_before = self.corpus_stat_tracker.get_result().total_edges
+                    # edges_before = self.corpus_stat_tracker.get_result().total_edges
                     
                     self.seed_queue.add_seed(mutation, result.mutation_context)
                     state_set.add(result.execution_state)
         
                     corpus_results.append(result)
-                    self.corpus_stat_tracker.add_sample(result)
+                    # self.corpus_stat_tracker.add_sample(result)
                     
                     # Check if new edges were discovered
-                    edges_after = self.corpus_stat_tracker.get_result().total_edges
-                    new_edge_coverage = edges_after > edges_before
+                    # edges_after = self.corpus_stat_tracker.get_result().total_edges
+                    # new_edge_coverage = edges_after > edges_before
 
                     accepted_results.append(result)
                     
@@ -181,7 +188,7 @@ class Fuzzer:
                 execution_count += 1
                 execution_time += result.execution_time
        
-                if self.corpus_stat_tracker.is_coverage_plateau():
+                if self.is_coverage_plateau():
                     time_limit = self.run_config['fuzzer']['time_limit']
                     time_remaining = time_limit - (time.time() - start_time) if time_limit else float('inf')
                     
@@ -213,12 +220,11 @@ class Fuzzer:
                     # reload config for any new definitions of state
                     with open('config.yaml') as f:
                         self.run_config = yaml.safe_load(f)
-                    state_set = set()   # reset state
 
                     seed_injects_raw = self.run_config['fuzzer'].get('seed_injects') or []
                     seed_injects = [codecs.decode(s, 'unicode_escape').encode('latin-1') for s in seed_injects_raw]
                     for seed_inject in seed_injects:
-                        result = execute_with_qiling(seed_inject, self.run_config)
+                        result = execute_binary(seed_inject, self.run_config)
                         corpus_results.append(result)
                         
                         if result.execution_outcome == ExecutionOutcome.CRASH:
@@ -234,9 +240,9 @@ class Fuzzer:
                         execution_count += 1
                         execution_time += result.execution_time
                         
-                        self.corpus_stat_tracker.add_sample(result)
+                    # self.corpus_stat_tracker.add_sample(result)
 
-                    self.corpus_stat_tracker.reset_time_since_last_coverage()
+                    # self.corpus_stat_tracker.reset_time_since_last_coverage()
 
                     # reset seed injects for next session
                     self.run_config['fuzzer']['seed_injects'] = []
@@ -264,8 +270,8 @@ class Fuzzer:
             total_execution_time_seconds=execution_time,
             average_execution_time_seconds=execution_time / execution_count if execution_count > 0 else 0,
             crash_rate=((len(crashes) / execution_count) if execution_count > 0 else 0),
-            corpus_stat_result=self.corpus_stat_tracker.get_result(),
-            token_usage=TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0),  # No token usage for operators fuzzer
+            corpus_stat_result=None,
+            token_usage=TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0),
         )
 
         self.print_summary(fuzzer_result, crashes)
@@ -273,6 +279,12 @@ class Fuzzer:
         self.save_results(corpus_results, self.output_dir / 'corpus_results.json')
         self.save_crashes(crashes)
         self.save_mutations()
+    
+    def is_coverage_plateau(self) -> bool:
+        time_since_last_coverage = time.time() - self.last_increase_state_coverage_time
+        if time_since_last_coverage >= self.coverage_plateau_timeout_seconds:
+            return True
+        return False
     
     def print_summary(self, fuzzer_result: FuzzerResult, crashes: List[CrashResult]):
         print("\n=== Fuzzing Summary ===")
@@ -283,13 +295,6 @@ class Fuzzer:
         print(f"Total execution time: {fuzzer_result.total_execution_time_seconds:.2f}s")
         print(f"Average execution time: {fuzzer_result.average_execution_time_seconds:.3f}s")
         print(f"Crash rate: {(fuzzer_result.crashes_found/fuzzer_result.total_executions)*100:.2f}%" if fuzzer_result.total_executions > 0 else "N/A")
-        print(f"Total basic blocks covered: {fuzzer_result.corpus_stat_result.total_edges}")
-        print(f"Total branch sites covered: {fuzzer_result.corpus_stat_result.total_branch_sites}")
-        print(f"Unique instructions covered: {fuzzer_result.corpus_stat_result.total_unique_instructions}")
-        print(f"Average pathlen blocks: {fuzzer_result.corpus_stat_result.avg_pathlen_blocks:.2f}")
-        print(f"Max pathlen blocks: {fuzzer_result.corpus_stat_result.max_pathlen_blocks}")
-        print(f"Average call depth: {fuzzer_result.corpus_stat_result.avg_calldepth:.2f}")
-        print(f"Max call depth: {fuzzer_result.corpus_stat_result.max_calldepth}")
         
         print(f"Total mutations generated: {fuzzer_result.total_mutations}")
         print(f"Unique mutations generated: {fuzzer_result.unique_mutations}")
@@ -321,7 +326,6 @@ class Fuzzer:
                     return decoded
             except (UnicodeDecodeError, AttributeError):
                 pass
-            import base64
             return {
                 '_type': 'bytes',
                 '_data': base64.b64encode(data).decode('ascii')
@@ -348,26 +352,22 @@ class Fuzzer:
                 result.append(item)
         return result
 
-    def save_results(self, results: List[ExecutionResult], path: Path):
-        def serialize_result(r: ExecutionResult) -> dict:
-            return {
-                'input_data': r.input_data.decode('latin-1'),
-                'execution_outcome': r.execution_outcome.value,
-                'execution_time': r.execution_time,
-                'crash_info': r.crash_info,
-                'execution_state': self._serialize_execution_state(r.execution_state),
-                'stdout': r.stdout,
-                'total_edges': sum(1 for b in r.cov_bitmap if b),
-                'total_branch_sites': sum(1 for bt, bf in zip(r.branch_taken_bitmap, r.branch_fallthrough_bitmap) if bt or bf),
-                'total_unique_instructions': len(r.instr_address_set),
-                'total_instructions': r.total_instructions,
-                'pathlen_blocks': r.pathlen_blocks,
-                'call_depth': r.call_depth,
-                'function_hotspots': [f.model_dump() for f in r.function_hotspots],
-            }
-        serializable = [serialize_result(r) for r in results]
+    def save_results(self, results: List[BinaryExecutionResult], path: Path):
+        def convert_for_json(obj):
+            if isinstance(obj, bytes):
+                return obj.decode('latin-1')
+            elif isinstance(obj, dict):
+                return {k: convert_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [convert_for_json(item) for item in obj]
+            elif isinstance(obj, ExecutionOutcome):
+                return obj.value
+            else:
+                return obj
+
         with open(path, 'w') as f:
-            json.dump(serializable, f, indent=2)
+            json.dump([convert_for_json(r.model_dump()) for r in results], f, indent=2)
+        
         print(f"Saved {len(results)} results to {path}")
 
     def save_summary(self, fuzzer_result: FuzzerResult):        
@@ -428,32 +428,32 @@ class Fuzzer:
     def save_session_data(self, session_data: SessionData, session_data_dir: Path):
         path = session_data_dir / 'session_data_summary.json'
 
-        def aggregate_function_hotspots(mutation_results: List[ExecutionResult]) -> List[dict]:
-            symbol_counts = {}
+        # def aggregate_function_hotspots(mutation_results: List[BinaryExecutionResult]) -> List[dict]:
+        #     symbol_counts = {}
             
-            for result in mutation_results:
-                if not result.function_hotspots:
-                    continue
-                for hotspot in result.function_hotspots:
-                    symbol = hotspot.symbol
-                    if symbol not in symbol_counts:
-                        symbol_counts[symbol] = 0
-                    symbol_counts[symbol] += hotspot.count
+        #     for result in mutation_results:
+        #         if not result.function_hotspots:
+        #             continue
+        #         for hotspot in result.function_hotspots:
+        #             symbol = hotspot.symbol
+        #             if symbol not in symbol_counts:
+        #                 symbol_counts[symbol] = 0
+        #             symbol_counts[symbol] += hotspot.count
             
-            if not symbol_counts:
-                return []
+        #     if not symbol_counts:
+        #         return []
             
-            total_samples = sum(symbol_counts.values())
-            aggregated = [
-                {
-                    'symbol': symbol,
-                    'count': count,
-                    'percentage': (count / total_samples * 100.0) if total_samples > 0 else 0.0
-                }
-                for symbol, count in sorted(symbol_counts.items(), key=lambda x: x[1], reverse=True)
-            ]
+        #     total_samples = sum(symbol_counts.values())
+        #     aggregated = [
+        #         {
+        #             'symbol': symbol,
+        #             'count': count,
+        #             'percentage': (count / total_samples * 100.0) if total_samples > 0 else 0.0
+        #         }
+        #         for symbol, count in sorted(symbol_counts.items(), key=lambda x: x[1], reverse=True)
+        #     ]
             
-            return aggregated
+        #     return aggregated
 
         def serialize_session_data(session_data: SessionData) -> dict:
             return {
@@ -463,7 +463,7 @@ class Fuzzer:
                 'num_execution_states': len(session_data.execution_state_set),
                 'mutations': session_data.mutations,
                 'execution_state_set': [self._serialize_execution_state(es) for es in session_data.execution_state_set],
-                'overall_function_hotspots': aggregate_function_hotspots(session_data.mutation_results),
+                # 'overall_function_hotspots': aggregate_function_hotspots(session_data.mutation_results),
             }
         
         serializable = serialize_session_data(session_data)

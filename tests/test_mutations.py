@@ -3,7 +3,7 @@ import argparse
 import traceback
 
 from ExecStateFuzzer.mutation_engine import MutationEngine
-from ExecStateFuzzer.ql_emulation import execute_with_qiling
+from ExecStateFuzzer.subprocess_execution import execute_binary
 
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str)
@@ -29,7 +29,7 @@ print(f"Found {len(operators)} operators: {', '.join(operators)}\n")
 
 print("Running emulation to get execution state...")
 input_bytes = input_data.encode('latin-1')
-execution_result = execute_with_qiling(input_bytes, run_config)
+execution_result = execute_binary(input_bytes, run_config)
 execution_state = execution_result.execution_state
 mutation_context = execution_result.mutation_context
 
